@@ -115,9 +115,8 @@ public final class AuctionRoomState {
     }
 
     /**
-     * Aplica una puja si el jugador no supera su saldo del catálogo en esta mesa (sesión).
-     *
-     * @param playerBalance tope de dinero que este jugador puede apostar en total en esta mesa
+     * Aplica una puja: el precio de mesa sube y el margen de cada jugador es (saldo catálogo − precio mesa).
+     * Una puja es válida si {@code saldo >= precioActual + monto} (al pagar el nuevo precio seguirías en positivo).
      */
     public BidOutcome tryApplyBid(long playerId, String playerName, int amount, int playerBalance) {
         if (phase != Phase.LIVE) {
@@ -130,16 +129,12 @@ public final class AuctionRoomState {
             return BidOutcome.REJECTED;
         }
         int spent = spentByPlayerId.getOrDefault(playerId, 0);
-        /** Presupuesto para pujas incrementales: saldo catálogo menos puja inicial de la mesa. */
-        int maxIncrementTotal = playerBalance - initialBid;
-        if (maxIncrementTotal < 0) {
-            maxIncrementTotal = 0;
-        }
-        if (spent + amount > maxIncrementTotal) {
+        int newPrice = currentPrice + amount;
+        if (newPrice > playerBalance) {
             return BidOutcome.INSUFFICIENT_FUNDS;
         }
         spentByPlayerId.put(playerId, spent + amount);
-        currentPrice += amount;
+        currentPrice = newPrice;
         lastBidder = playerName;
         bidTimeLeft = BID_RESET_SECONDS;
         return BidOutcome.APPLIED;

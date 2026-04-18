@@ -103,11 +103,12 @@ public class AuctionSessionService {
         }
         AuctionRoomState.BidOutcome outcome = room.tryApplyBid(playerId, player.name(), amount, player.balance());
         if (outcome == AuctionRoomState.BidOutcome.INSUFFICIENT_FUNDS) {
-            int spent = room.spentBy(playerId);
-            int avail = Math.max(0, player.balance() - room.initialBid() - spent);
+            int avail = Math.max(0, player.balance() - room.currentPrice());
             sendError(session,
-                    "Saldo insuficiente. La puja inicial reserva $" + room.initialBid()
-                            + " de tu saldo. Llevas $" + spent + " en pujas extra; disponible $" + avail + ".");
+                    "Saldo insuficiente para subir la mesa a $" + (room.currentPrice() + amount)
+                            + ". Tu saldo es $" + player.balance()
+                            + "; con el precio actual $" + room.currentPrice()
+                            + " te quedan $" + avail + " para pujar.");
             return;
         }
         if (outcome == AuctionRoomState.BidOutcome.APPLIED) {
@@ -118,7 +119,14 @@ public class AuctionSessionService {
     @Scheduled(fixedRate = 1000)
     public void tickAllRooms() {
         for (Map.Entry<Long, AuctionRoomState> e : rooms.entrySet()) {
-            e.getValue().tick();
+            AuctionRoomState room = e.getValue();
+            AuctionRoomState.Phase before = room.phase();
+            room.tick();
+            AuctionRoomState.Phase after = room.phase();
+            // FINISHED: tick es no-op; no spamear STATE repetido cada segundo.
+            if (after == AuctionRoomState.Phase.FINISHED && before == AuctionRoomState.Phase.FINISHED) {
+                continue;
+            }
             broadcastState(e.getKey());
         }
     }
@@ -151,8 +159,12 @@ public class AuctionSessionService {
                     Player p = catalog.findPlayer(pid).orElse(null);
                     if (p != null) {
                         int spent = room.spentBy(pid);
-                        int remaining = Math.max(0, p.balance() - room.initialBid() - spent);
-                        int committed = room.initialBid() + spent;
+                        int price = room.currentPrice();
+                        int bal = p.balance();
+                        /** Disponible para pujar = saldo catálogo − precio actual de la mesa (igual para todos). */
+                        int remaining = Math.max(0, bal - price);
+                        /** Referencia UI: menor entre saldo y precio (tu “tope” frente a la mesa). */
+                        int committed = Math.min(bal, price);
                         payload.put("yourSpent", spent);
                         payload.put("yourRemaining", remaining);
                         payload.put("yourCommittedTotal", committed);
